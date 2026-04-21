@@ -1,161 +1,186 @@
-# Creating OpenCLI Adapters
+---
+name: opencli-adapter-creator
+description: Use when creating new OpenCLI adapters, adding custom CLI commands for websites, or writing adapter code for search engines and other web services. Covers DOM parsing, API integration, URL resolution, and adapter structure conventions.
+tags: [opencli, adapter, cli, browser, dom-parsing, web-scraping, search-engine]
+---
 
-This guide explains how to create new OpenCLI adapters and save them to this repository.
+# OpenCLI Adapter Creator Guide
 
-## Quick Start
+> Create custom OpenCLI adapters for websites (search engines, APIs, etc.)
 
-### Step 1: Explore the Target Site
+## Quick Reference
 
-Use OpenCLI's built-in explorer to understand the site's structure:
+| Task | Approach |
+|------|----------|
+| Create search engine adapter | DOM parsing + URL resolution |
+| Create API adapter | `Strategy.API` + fetch |
+| Create authenticated adapter | `Strategy.COOKIE` + browser |
+| Test adapter | Copy to `~/.opencli/clis/` + run |
 
-```bash
-# Open the site in browser automation mode
-opencli browser open "https://example.com"
+---
 
-# Check available elements
-opencli browser state
+## Adapter Structure
 
-# Take a screenshot for reference
-opencli browser screenshot example.png
+Each adapter is a single JS file:
+
+```
+site-name/
+└── command.js    # CLI definition
 ```
 
-### Step 2: Identify API or DOM Structure
+Install location:
+- **Repo contribution**: `clis/<site>/<name>.js` + `npm run build`
+- **Private adapter**: `~/.opencli/clis/<site>/<name>.js` (no build needed)
 
-Two main strategies:
+---
 
-1. **API Strategy**: If the site has JSON API endpoints
-   - Use `opencli browser network` to capture API calls
-   - Extract endpoint URLs, parameters, and response structure
+## Strategy Types
 
-2. **DOM Strategy**: If no API available, parse HTML
-   - Use `opencli browser eval` to test selectors
-   - Extract data from page elements
+| Strategy | Use Case | Browser | Speed |
+|----------|----------|---------|-------|
+| `Strategy.PUBLIC` | Open APIs, no auth | `false` | ~1s |
+| `Strategy.API` | JSON APIs | `false` | ~1s |
+| `Strategy.COOKIE` | Cookie-based auth | `true` | ~7s |
+| `Strategy.HEADER` | CSRF/Bearer tokens | `true` | ~7s |
+| `Strategy.INTERCEPT` | Complex signing | `true` | ~10s |
 
-### Step 3: Create Adapter File
+---
 
-Create a new file in the repository:
+## Template: DOM-Based Search Adapter
 
-```bash
-mkdir -p site-name
-touch site-name/command.js
-```
-
-### Step 4: Write Adapter Code
-
-Basic template for DOM-based adapter:
+Most search engines use redirect links. Use this pattern:
 
 ```javascript
-/**
- * Site Name - Command Description.
- * Strategy: COOKIE (browser) or API (fetch)
- */
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CliError } from '@jackwener/opencli/errors';
 
 cli({
-    site: 'site-name',
-    name: 'command',
-    description: 'Command description',
-    strategy: Strategy.COOKIE,  // or Strategy.API
-    browser: true,  // required for COOKIE strategy
-    args: [
-        { name: 'query', positional: true, required: true, help: 'Input parameter' },
-        { name: 'limit', type: 'int', default: 10, help: 'Max results' },
-    ],
-    columns: ['title', 'url', 'snippet'],  // output columns
-    func: async (page, args) => {
-        const limit = Math.max(1, Math.min(Number(args.limit), 25));
-        const url = `https://example.com/search?q=${encodeURIComponent(args.query)}`;
+  site: 'mysite',
+  name: 'search',
+  description: 'Search MySite',
+  domain: 'www.example.com',
+  strategy: Strategy.COOKIE,
+  browser: true,
+  args: [
+    { name: 'query', positional: true, required: true, help: 'Search query' },
+    { name: 'limit', type: 'int', default: 10, help: 'Max results (max 25)' },
+  ],
+  columns: ['title', 'snippet', 'url'],
+  func: async (page, args) => {
+    const limit = Math.max(1, Math.min(Number(args.limit), 25));
+    const url = `https://www.example.com/search?q=${encodeURIComponent(args.query)}`;
 
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-        // Extract data from DOM
-        const items = await page.evaluate(`(async () => {
-            const results = document.querySelectorAll('.result-item');
-            const data = [];
-            results.forEach((r) => {
-                const titleEl = r.querySelector('.title a');
-                const snippetEl = r.querySelector('.snippet');
-                if (titleEl) {
-                    data.push({
-                        title: titleEl.textContent || '',
-                        url: titleEl.href || '',
-                        snippet: snippetEl?.textContent || ''
-                    });
-                }
-            });
-            return data;
-        })()`);
-
-        if (!items || !items.length) {
-            throw new CliError('NOT_FOUND', 'No results found', 'Try different query');
+    const items = await page.evaluate(`(async () => {
+      const results = document.querySelectorAll('.result-item');
+      const data = [];
+      results.forEach((r) => {
+        const titleEl = r.querySelector('.title a');
+        const snippetEl = r.querySelector('.snippet');
+        if (titleEl) {
+          data.push({
+            title: titleEl.textContent || '',
+            siteUrl: titleEl.href || '',
+            snippet: snippetEl?.textContent || ''
+          });
         }
+      });
+      return data;
+    })()`);
 
-        return items.slice(0, limit);
-    },
+    if (!items || !items.length) {
+      throw new CliError('NOT_FOUND', 'No results found', 'Try different query');
+    }
+
+    return items.slice(0, limit).map(item => ({
+      title: item.title || '',
+      snippet: item.snippet || '',
+      url: item.siteUrl || '',
+    }));
+  },
 });
 ```
 
-### Step 5: Test Locally
+---
 
-```bash
-# Copy to OpenCLI directory
-cp -r site-name ~/.opencli/clis/
+## URL Resolution Patterns
 
-# Test the command
-opencli site-name command "test query" --limit 5
-```
+Search engines often use redirect links. Resolve them:
 
-### Step 6: Debug if Needed
-
-```bash
-# Open browser to inspect
-opencli browser open "https://example.com/search?q=test"
-
-# Test selectors
-opencli browser eval "document.querySelectorAll('.result-item').length"
-
-# Check specific element
-opencli browser eval "document.querySelector('.result-item').outerHTML.substring(0,500)"
-```
-
-## Strategy Types
-
-| Strategy | Use Case | Requires Browser |
-|----------|----------|------------------|
-| `Strategy.API` | Sites with JSON APIs | No |
-| `Strategy.COOKIE` | Sites requiring login/session | Yes |
-| `Strategy.PUBLIC` | Simple public pages | No |
-
-## Common Patterns
-
-### URL Redirect Resolution
-
-Many search engines use redirect links. Resolve them:
+### HTTP Redirect (Baidu-style)
 
 ```javascript
-// For JS-based redirects (fetch HTML and parse)
-const resp = await fetch(redirectUrl);
-const html = await resp.text();
-const match = html.match(/window\.location\.replace\("([^"]+)"\)/);
-const realUrl = match ? match[1] : redirectUrl;
-
-// For HTTP redirects
-const resp = await fetch(redirectUrl, { method: 'HEAD', redirect: 'follow' });
-const realUrl = resp.url;
+if (item.siteUrl.includes('example.com/link?url=')) {
+  try {
+    const resp = await fetch(item.siteUrl, { method: 'HEAD', redirect: 'follow' });
+    realUrl = resp.url;
+  } catch (e) {
+    realUrl = item.siteUrl;
+  }
+}
 ```
 
-### Handling Pagination
+### JS Redirect (Sogou-style)
 
 ```javascript
-// Add page argument
-{ name: 'page', type: 'int', default: 1, help: 'Page number' }
-
-// Construct URL with pagination
-const url = `https://example.com/search?q=${query}&page=${args.page}`;
+if (item.siteUrl.includes('example.com/link')) {
+  try {
+    const resp = await fetch(item.siteUrl);
+    const html = await resp.text();
+    const match = html.match(/window\.location\.replace\("([^"]+)"\)/);
+    realUrl = match ? match[1] : item.siteUrl;
+  } catch (e) {
+    realUrl = item.siteUrl;
+  }
+}
 ```
 
-### Error Handling
+### Base64 Encoding (Bing-style)
+
+```javascript
+function decodeUrl(encodedUrl) {
+  const match = encodedUrl.match(/u=a1([a-zA-Z0-9+/=]+)/);
+  if (match && match[1]) {
+    try {
+      return Buffer.from(match[1], 'base64').toString('utf-8');
+    } catch (e) {}
+  }
+  return encodedUrl;
+}
+```
+
+---
+
+## API-Based Adapter
+
+For sites with JSON APIs:
+
+```javascript
+import { cli, Strategy } from '@jackwener/opencli/registry';
+
+cli({
+  site: 'mysite',
+  name: 'list',
+  description: 'List items',
+  domain: 'api.example.com',
+  strategy: Strategy.API,
+  browser: false,
+  args: [
+    { name: 'limit', type: 'int', default: 20 },
+  ],
+  columns: ['id', 'title', 'value'],
+  func: async (page, args) => {
+    const res = await fetch('https://api.example.com/items?limit=' + args.limit);
+    const data = await res.json();
+    return (data.items || []).slice(0, args.limit);
+  },
+});
+```
+
+---
+
+## Error Handling
 
 ```javascript
 import { CliError } from '@jackwener/opencli/errors';
@@ -163,31 +188,45 @@ import { CliError } from '@jackwener/opencli/errors';
 // Site-specific errors
 throw new CliError('NOT_FOUND', 'No results', 'Try different query');
 throw new CliError('RATE_LIMITED', 'Too many requests', 'Wait and retry');
+throw new CliError('AUTH_REQUIRED', 'Login required', 'Open browser and login');
 ```
 
-## Complete Example: Search Engine Adapter
+---
 
-See existing adapters for reference:
-- [bing/search.js](bing/search.js) - Bing with URL decoding
-- [baidu/search.js](baidu/search.js) - Baidu with redirect resolution
-- [sogou/search.js](sogou/search.js) - Sogou with JS redirect parsing
-
-## Publishing to Repository
-
-After testing:
-
-1. Ensure adapter is in the repository directory
-2. Update README.md to list the new adapter
-3. Commit and push:
+## Testing
 
 ```bash
-git add site-name/
-git commit -m "Add site-name adapter"
-git push
+# Copy to OpenCLI directory
+cp -r site-name ~/.opencli/clis/
+
+# Run the command
+opencli site-name search "test query" --limit 5
 ```
+
+**Done criteria**: Command returns non-empty table with expected columns.
+
+---
+
+## Existing Examples
+
+| Adapter | Features |
+|---------|----------|
+| [baidu/search.js](../baidu/search.js) | Cookie + HTTP redirect resolution |
+| [bing/search.js](../bing/search.js) | Cookie + Base64 URL decoding |
+| [sogou/search.js](../sogou/search.js) | Cookie + JS redirect parsing |
+
+---
+
+## Advanced Topics
+
+For full exploration workflow (API discovery, auth cascade, intercept mode), see:
+- [opencli-explorer skill](https://github.com/jackwener/opencli) - Complete site exploration
+- [opencli-oneshot skill](https://github.com/jackwener/opencli) - Quick single-command generation
+
+---
 
 ## Resources
 
 - [OpenCLI Documentation](https://github.com/jackwener/opencli)
 - [OpenCLI Registry Reference](https://github.com/jackwener/opencli/blob/main/docs/registry.md)
-- [Puppeteer API](https://ppuppeteer.github.io/puppeteer/) (for browser automation)
+- [Puppeteer API](https://ppuppeteer.github.io/puppeteer/) - Browser automation
