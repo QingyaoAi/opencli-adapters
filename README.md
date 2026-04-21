@@ -12,7 +12,7 @@ Custom OpenCLI adapters maintained by [QingyaoAi](https://github.com/QingyaoAi).
 
 ## Installation
 
-### Method 1: Clone and Copy
+Clone and copy to your OpenCLI directory:
 
 ```bash
 # Clone the repository
@@ -22,14 +22,6 @@ git clone https://github.com/QingyaoAi/opencli-adapters.git
 cp -r opencli-adapters/bing ~/.opencli/clis/
 cp -r opencli-adapters/baidu ~/.opencli/clis/
 cp -r opencli-adapters/sogou ~/.opencli/clis/
-```
-
-### Method 2: Direct Install (if published)
-
-```bash
-opencli install bing
-opencli install baidu
-opencli install sogou
 ```
 
 ## Usage Examples
@@ -56,12 +48,12 @@ site-name/
 
 ## Creating New Adapters
 
-See [SKILL.md](SKILL.md) for detailed guide on creating new OpenCLI adapters.
+See [opencli-adapter-creator/SKILL.md](opencli-adapter-creator/SKILL.md) for detailed guide on creating new OpenCLI adapters.
 
 ## Contributing
 
-1. Create a new adapter following the [SKILL.md](SKILL.md) guide
-2. Test your adapter thoroughly
+1. Create a new adapter following the [opencli-adapter-creator/SKILL.md](opencli-adapter-creator/SKILL.md) guide
+2. Test your adapter locally (`cp -r site-name ~/.opencli/clis/` then `opencli site-name command`)
 3. Submit a PR with your new adapter
 
 ## License
