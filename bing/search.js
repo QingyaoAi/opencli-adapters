@@ -17,6 +17,7 @@ function decodeBingUrl(bingUrl) {
             // Bing uses a variant of base64 where a1 prefix indicates URL type
             // Decode the base64 part
             const base64 = match[1];
+            // Use Buffer for Node.js compatibility (func runs in Node context)
             const decoded = Buffer.from(base64, 'base64').toString('utf-8');
             return decoded;
         } catch (e) {
@@ -31,9 +32,11 @@ function decodeBingUrl(bingUrl) {
 cli({
     site: 'bing',
     name: 'search',
+    access: 'read',
     description: 'Search Bing',
     strategy: Strategy.COOKIE,
     browser: true,
+    timeoutSeconds: 60,
     args: [
         { name: 'query', positional: true, required: true, help: 'Search query' },
         { name: 'limit', type: 'int', default: 10, help: 'Max results (max 25)' },
@@ -45,24 +48,34 @@ cli({
         const url = `https://www.bing.com/search?q=${query}`;
 
         await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await page.wait(5);
 
         // Extract search results from DOM
-        const items = await page.evaluate(`(async () => {
-            const results = document.querySelectorAll('.b_algo');
+        // Note: page.evaluate returns { session, data } object
+        const evalResult = await page.evaluate(`
+        (() => {
+            const results = document.querySelectorAll('#b_results > li');
             const data = [];
-            results.forEach((r, i) => {
-                const titleEl = r.querySelector('h2 a');
-                const snippetEl = r.querySelector('.b_caption p') || r.querySelector('p');
-                if (titleEl) {
+            for (const r of results) {
+                if (r.querySelector('#inline_rs') || r.querySelector('nav') || r.id) continue;
+                const h2 = r.querySelector('h2');
+                if (!h2) continue;
+                const titleEl = h2.querySelector('a');
+                const snippetEl = r.querySelector('p');
+                if (titleEl && titleEl.href) {
                     data.push({
-                        title: titleEl.textContent || '',
-                        bingUrl: titleEl.href || '',
-                        snippet: snippetEl?.textContent || ''
+                        title: (titleEl.textContent || '').trim(),
+                        bingUrl: titleEl.href,
+                        snippet: (snippetEl?.textContent || '').trim()
                     });
                 }
-            });
+            }
             return data;
-        })()`);
+        })()
+        `);
+
+        // Extract actual data from evaluate result
+        const items = evalResult.data;
 
         if (!items || !items.length) {
             throw new CliError('NOT_FOUND', 'No search results found', 'Try a different query');

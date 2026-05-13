@@ -8,9 +8,11 @@ import { CliError } from '@jackwener/opencli/errors';
 cli({
     site: 'sogou',
     name: 'search',
+    access: 'read',
     description: 'Search Sogou',
     strategy: Strategy.COOKIE,
     browser: true,
+    timeoutSeconds: 60,
     args: [
         { name: 'query', positional: true, required: true, help: 'Search query' },
         { name: 'limit', type: 'int', default: 10, help: 'Max results (max 25)' },
@@ -22,24 +24,30 @@ cli({
         const url = `https://www.sogou.com/web?query=${query}`;
 
         await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await page.wait(5);
 
         // Extract search results from DOM
-        const items = await page.evaluate(`(async () => {
+        // Note: page.evaluate returns { session, data } object
+        const evalResult = await page.evaluate(`
+        (() => {
             const results = document.querySelectorAll('.vrwrap, .rb');
             const data = [];
-            results.forEach((r, i) => {
+            for (const r of results) {
                 const titleEl = r.querySelector('h3 a, .vr-title a');
                 const snippetEl = r.querySelector('.space-txt, .star-wiki');
-                if (titleEl) {
+                if (titleEl && titleEl.href) {
                     data.push({
                         title: (titleEl.textContent || '').trim(),
-                        sogouUrl: titleEl.href || '',
+                        sogouUrl: titleEl.href,
                         snippet: (snippetEl?.textContent || '').trim()
                     });
                 }
-            });
+            }
             return data;
-        })()`);
+        })()
+        `);
+
+        const items = evalResult.data;
 
         if (!items || !items.length) {
             throw new CliError('NOT_FOUND', 'No search results found', 'Try a different query');
